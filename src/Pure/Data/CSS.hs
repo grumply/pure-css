@@ -323,7 +323,7 @@ css :: Narrative CSS_ Identity a -> View
 css = css' False
 
 css' :: forall a e. Bool -> Narrative CSS_ Identity a -> View
-css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped" (if b then "true" else "") |> ((fromTxt "\n"): (fst $ go False [] nar))
+css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped" (if b then "true" else "") |> ((txt "\n"): (fst $ go False [] nar))
   where
     go :: forall a. Bool -> [View] -> Narrative CSS_ Identity a -> ([View],a)
     go b acc (Return a) = (acc,a)
@@ -333,14 +333,14 @@ css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped
         CSS3_ atRule sel css k ->
           case css of
             Return a ->
-              go False (acc ++ [ fromTxt (atRule <> sel <> ";\n") ]) (k a)
+              go False (acc ++ [ text (atRule <> sel <> ";\n") ]) (k a)
             _ ->
               let (c,a) = go True [] css
-              in go False (acc ++ ( fromTxt (atRule <> sel <> " {\n") : c) ++ [ fromTxt "\n}\n\n" ]) (k a)
+              in go False (acc ++ ( txt (atRule <> sel <> " {\n") : c) ++ [ txt "\n}\n\n" ]) (k a)
         CSS_ sel ss r ->
           let (s,a) = renderStyles b ss
           in
-            go b  ( acc ++ [ fromTxt ( (if b then "\t" else mempty)
+            go b  ( acc ++ [ txt ( (if b then "\t" else mempty)
                                       <> sel
                                       <> " {\n"
                                       <> (Txt.intercalate (if b then ";\n\t" else ";\n") s)
