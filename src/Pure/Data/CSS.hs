@@ -95,6 +95,8 @@ instance Functor CSS_ where
   fmap f (CSS3_ n l cs ak) = CSS3_ n l cs (fmap f ak)
 
 type CSS = Narrative CSS_ Identity
+instance Default (CSS ()) where
+  def = return ()
 
 selector :: Txt -> Styles a -> CSS a
 selector sel ss = send (CSS_ sel ss id)
