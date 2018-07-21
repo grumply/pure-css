@@ -89,10 +89,12 @@ getStyles = sequence_ . M.mapWithKey (=:) . styles
 data CSS_ k where
   CSS_ :: Txt -> Styles a -> (a -> k) -> CSS_ k
   CSS3_ :: Txt -> Txt -> CSS a -> (a -> k) -> CSS_ k
+  RawCSS_ :: Txt -> k -> CSS_ k
 
 instance Functor CSS_ where
   fmap f (CSS_ t ss ak) = CSS_ t ss (fmap f ak)
   fmap f (CSS3_ n l cs ak) = CSS3_ n l cs (fmap f ak)
+  fmap f (RawCSS_ c k) = RawCSS_ c (f k)
 
 type CSS = Narrative CSS_ Identity
 instance Default (CSS ()) where
@@ -120,6 +122,9 @@ composable css = css >> return (Composable css)
 newtype Extendable a = Extendable { extends :: Styles a }
 extendable :: Styles a -> Styles (Extendable a)
 extendable ss = ss >> return (Extendable ss)
+
+rawCSS_ :: Txt -> CSS ()
+rawCSS_ c = Do (RawCSS_ c (Return ()))
 
 select :: Txt -> CSS a -> CSS a
 select sel s = buildn $ \r l d ->
@@ -155,6 +160,9 @@ disabled = "[disabled]"
 is :: Txt -> CSS a -> CSS a
 is = select
 
+is_ :: Txt -> CSS a -> CSS ()
+is_ t c = void (is t c)
+
 -- equivalent to id; purely for scanning purposes
 and :: (Txt -> CSS a -> CSS a) -> Txt -> CSS a -> CSS a
 and f sel css = f sel css
@@ -165,6 +173,9 @@ or f sel css = f (", " <> sel) css
 isn't :: Txt -> CSS a -> CSS a
 isn't sel = select (":not(" <> sel <> ")")
 
+isn't_ :: Txt -> CSS a -> CSS ()
+isn't_ sel css = void (isn't sel css)
+
 compose :: (Category cat, Foldable t) => t (cat a a) -> cat a a
 compose = F.foldr (>>>) id
 
@@ -174,20 +185,38 @@ use fs x = for fs ($ x)
 pseudo :: Txt -> CSS a -> CSS a
 pseudo sel = select (":" <> sel)
 
+pseudo_ :: Txt -> CSS a -> CSS ()
+pseudo_ sel c = void (pseudo sel c)
+
 attr :: Txt -> CSS a -> CSS a
 attr sel = select ("[" <> sel <> "]")
+
+attr_ :: Txt -> CSS a -> CSS ()
+attr_ sel c = void (attr sel c)
 
 child :: Txt -> CSS a -> CSS a
 child sel = select (" > " <> sel)
 
+child_ :: Txt -> CSS a -> CSS ()
+child_ sel c = void (child sel c)
+
 has :: Txt -> CSS a -> CSS a
 has sel = select (" " <> sel)
+
+has_ :: Txt -> CSS a -> CSS ()
+has_ sel css = void (has sel css)
 
 next :: Txt -> CSS a -> CSS a
 next sel = select (" + " <> sel)
 
+next_ :: Txt -> CSS a -> CSS ()
+next_ sel css = void (next sel css)
+
 nexts :: Txt -> CSS a -> CSS a
 nexts sel = select (" ~ " <> sel)
+
+nexts_ :: Txt -> CSS a -> CSS ()
+nexts_ sel css = void (nexts sel css)
 
 atCharset :: Txt -> CSS ()
 atCharset cs = send (CSS3_ "@charset " cs (return ()) id)
@@ -217,17 +246,32 @@ atNamespace ns mnsv = send (CSS3_ namespace_ ns_ (Return ()) id)
 atMedia :: Txt -> CSS a -> CSS a
 atMedia med c = send (CSS3_ "@media " med c id)
 
+atMedia_ :: Txt -> CSS a -> CSS ()
+atMedia_ med c = void (atMedia med c)
+
 atPage :: Txt -> CSS a -> CSS a
 atPage pgsel rls = send (CSS3_ "@page " pgsel rls id)
+
+atPage_ :: Txt -> CSS a -> CSS ()
+atPage_ med c = void (atPage med c)
 
 atFontFace :: Txt -> CSS a -> CSS a
 atFontFace ff rls = send (CSS3_ "@font-face " ff rls id)
 
+atFontFace_ :: Txt -> CSS a -> CSS ()
+atFontFace_ ff rls = void (atFontFace ff rls)
+
 atWebkitKeyframes :: Txt -> CSS a -> CSS a
-atWebkitKeyframes nm kfs = send (CSS3_ "@-webkit-keyframes" nm kfs id)
+atWebkitKeyframes nm kfs = send (CSS3_ "@-webkit-keyframes " nm kfs id)
+
+atWebkitKeyframes_ :: Txt -> CSS a -> CSS ()
+atWebkitKeyframes_ nm kfs = void (atWebkitKeyframes nm kfs)
 
 atKeyframes :: Txt -> CSS a -> CSS a
 atKeyframes nm kfs = send (CSS3_ "@keyframes " nm kfs id)
+
+atKeyframes_ :: Txt -> CSS a -> CSS ()
+atKeyframes_ nm kfs = void (atKeyframes nm kfs)
 
 -- data CSSError = InvalidCSSSyntax Txt deriving (Show)
 -- instance Exception CSSError
@@ -243,6 +287,10 @@ instance Monoid StaticCSS where
 #ifdef USE_TEMPLATE_HASKELL
 instance TH.Lift StaticCSS where
   lift (StaticCSS csst) = [| StaticCSS csst |]
+mkRawCSS :: CSS () -> TH.Q TH.Exp
+mkRawCSS c =
+  let x = toTxt (staticCSS c)
+  in [|rawCSS_ x|]
 #endif
 
 instance ToTxt (CSS a) where
@@ -263,6 +311,8 @@ instance ToTxt (CSS a) where
             let (s,a) = renderStyles b (unsafeCoerce ss)
                 t = sel <> " {\n" <> Txt.intercalate ";\n" s <> if b then "\n\t}\n\n" else "\n}\n\n"
             in go (acc <> if b then "\t" <> t else t) b (unsafeCoerce k a)
+          RawCSS_ css k ->
+            go (acc <> css <> "\n") b k
 
 staticCSS :: CSS a -> StaticCSS
 staticCSS = fromTxt . toTxt
