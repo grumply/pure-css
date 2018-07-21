@@ -1,7 +1,5 @@
 {-# LANGUAGE TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP #-}
-#ifdef USE_TEMPLATE_HASKELL
 {-# LANGUAGE TemplateHaskell #-}
-#endif
 module Pure.Data.CSS where
 
 -- from ef
@@ -34,9 +32,7 @@ import Prelude hiding ((.),id)
 import qualified Data.Map.Strict as M
 
 -- from template-haskell
-#ifdef USE_TEMPLATE_HASKELL
 import qualified Language.Haskell.TH.Syntax as TH
-#endif
 
 data Styles_ k where
   Style_ :: Txt -> Txt -> k -> Styles_ k
@@ -284,14 +280,12 @@ instance FromTxt StaticCSS where
 instance Monoid StaticCSS where
   mempty = fromTxt mempty
   mappend csst1 csst2 = fromTxt $ toTxt csst1 <> "\n" <> toTxt csst2
-#ifdef USE_TEMPLATE_HASKELL
 instance TH.Lift StaticCSS where
   lift (StaticCSS csst) = [| StaticCSS csst |]
 mkRawCSS :: CSS () -> TH.Q TH.Exp
 mkRawCSS c =
   let x = toTxt (staticCSS c)
   in [|rawCSS_ x|]
-#endif
 
 instance ToTxt (CSS a) where
   toTxt = fst . go "\n" False
@@ -400,6 +394,7 @@ css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped
                                   )
                            ]
                   ) (r a)
+        RawCSS_ css k -> go b (acc ++ [ txt (css <> "\n") ]) k
 
 scss :: StaticCSS -> View
 scss = scss' False
@@ -419,4 +414,6 @@ inlineCSS = css' True . classify
           Do (CSS_ (Txt.cons '.' sel) ss (classify . k))
         CSS3_ at sel css k ->
           Do (CSS3_ at sel (classify css) (classify . k))
+        RawCSS_ css k ->
+          Do (RawCSS_ css (classify k))
 

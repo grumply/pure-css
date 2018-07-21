@@ -10,9 +10,9 @@ category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 
-Flag use-template-haskell
-     Description: enable template haskell for a Lift SCSS instance
-     Default: True
+Flag no-use-template-haskell
+     Description: disable template haskell for a Lift SCSS instance
+     Default: False
      Manual: True
 
 library
@@ -22,11 +22,8 @@ library
     pure-core >= 0.7 && < 1,
     pure-default >= 0.7 && < 1,
     pure-txt >= 0.7 && < 1,
-    containers
-
-  if flag(use-template-haskell)
-    cpp-options: -DUSE_TEMPLATE_HASKELL
-    build-depends: template-haskell
+    containers,
+    template-haskell
 
   hs-source-dirs: src
 
