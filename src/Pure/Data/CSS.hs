@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP #-}
+{-# LANGUAGE CPP,TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Pure.Data.CSS where
 
@@ -279,7 +279,12 @@ instance FromTxt StaticCSS where
   fromTxt = StaticCSS
 instance Monoid StaticCSS where
   mempty = fromTxt mempty
+#if !MIN_VERSION_base(4,11,0)
   mappend csst1 csst2 = fromTxt $ toTxt csst1 <> "\n" <> toTxt csst2
+#else
+instance Semigroup StaticCSS where
+  (<>) csst1 csst2 = fromTxt $ toTxt csst1 <> "\n" <> toTxt csst2
+#endif
 instance TH.Lift StaticCSS where
   lift (StaticCSS csst) = [| StaticCSS csst |]
 mkRawCSS :: CSS () -> TH.Q TH.Exp
