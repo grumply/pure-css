@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP,TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP #-}
+{-# LANGUAGE CPP,TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP, DeriveLift #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Pure.Data.CSS where
 
@@ -272,10 +272,12 @@ atKeyframes_ nm kfs = void (atKeyframes nm kfs)
 -- data CSSError = InvalidCSSSyntax Txt deriving (Show)
 -- instance Exception CSSError
 
-data StaticCSS = StaticCSS { cssText :: {-# UNPACK #-} !Txt } deriving (Eq,Ord)
+newtype StaticCSS = StaticCSS { cssText :: Txt } deriving (Eq,Ord,TH.Lift)
 instance ToTxt StaticCSS where
+  {-# INLINE toTxt #-}
   toTxt (StaticCSS csst) = csst
 instance FromTxt StaticCSS where
+  {-# INLINE fromTxt #-}
   fromTxt = StaticCSS
 instance Monoid StaticCSS where
   mempty = fromTxt mempty
@@ -285,12 +287,8 @@ instance Monoid StaticCSS where
 instance Semigroup StaticCSS where
   (<>) csst1 csst2 = fromTxt $ toTxt csst1 <> "\n" <> toTxt csst2
 #endif
-instance TH.Lift StaticCSS where
-  lift (StaticCSS csst) = [| StaticCSS csst |]
 mkRawCSS :: CSS () -> TH.Q TH.Exp
-mkRawCSS c =
-  let x = toTxt (staticCSS c)
-  in [|rawCSS_ x|]
+mkRawCSS c = [| rawCSS_ $(TH.lift $ toTxt c) |]
 
 instance ToTxt (CSS a) where
   toTxt = fst . go "\n" False
