@@ -144,12 +144,6 @@ select sel s = buildn $ \r l d ->
 any :: Txt 
 any = "*"
 
-before :: Txt
-before = ":before"
-
-after :: Txt
-after = ":after"
-
 active :: Txt
 active = ":active"
 
@@ -221,6 +215,21 @@ target = ":target"
 
 valid :: Txt
 valid = ":valid"
+
+before :: Txt
+before = "::before"
+
+after :: Txt
+after = "::after"
+
+firstLetter :: Txt
+firstLetter = "::first-letter"
+
+firstLine :: Txt
+firstLine = "::first-line"
+
+selection :: Txt
+selection = "::selection"
 
 is :: Txt -> CSS a -> CSS a
 is = select
