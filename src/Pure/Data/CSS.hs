@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP,TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP, DeriveLift #-}
+{-# LANGUAGE CPP,TypeSynonymInstances, ScopedTypeVariables, FlexibleInstances, OverloadedStrings, FlexibleContexts, PatternSynonyms, DeriveFunctor, ViewPatterns, RankNTypes, DataKinds, GADTs, CPP, DeriveLift, TypeApplications #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Pure.Data.CSS where
 
@@ -42,12 +42,9 @@ data Styles_ k where
 
 type Styles = Narrative Styles_ Identity
 
--- Note: `Txt.replace " " ""` is a hack to allow an instane of Num Txt to work for both
---       combinatorial css property names and within calc() where spaces are required
---       around operators.
 infixr 0 =:
 (=:) :: Txt -> Txt -> Styles Txt
-(=:) nm val = send (Style_ (Txt.replace " " "" nm) val val)
+(=:) nm val = send (Style_ nm val val)
 
 infixr 0 =*
 (=*) :: Txt -> [Txt] -> Styles Txt
@@ -250,6 +247,9 @@ lang sel = select (":lang(" <> sel <> ")")
 nthChild :: Int -> CSS a -> CSS a
 nthChild i = select (":nth-child(" <> toTxt i <> ")")
 
+nthChildCalc :: Txt -> CSS a -> CSS a
+nthChildCalc i = select (":nth-child(" <> i <> ")")
+
 nthLastChild :: Int -> CSS a -> CSS a
 nthLastChild i = select (":nth-last-child(" <> toTxt i <> ")")
 
@@ -426,7 +426,7 @@ css :: Narrative CSS_ Identity a -> View
 css = css' False
 
 css' :: forall a e. Bool -> Narrative CSS_ Identity a -> View
-css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped" (if b then "true" else "") |> ((txt "\n"): (fst $ go False [] nar))
+css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped" (if b then "true" else "") |> ("\n" : (fst $ go False [] nar))
   where
     go :: forall a. Bool -> [View] -> Narrative CSS_ Identity a -> ([View],a)
     go b acc (Return a) = (acc,a)
@@ -439,7 +439,7 @@ css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped
               go False (acc ++ [ txt (atRule <> sel <> ";\n") ]) (k a)
             _ ->
               let (c,a) = go True [] css
-              in go False (acc ++ ( txt (atRule <> sel <> " {\n") : c) ++ [ txt "\n}\n\n" ]) (k a)
+              in go False (acc ++ ( txt (atRule <> sel <> " {\n") : c) ++ [ "\n}\n\n" ]) (k a)
         CSS_ sel ss r ->
           let (s,a) = renderStyles b ss
           in
