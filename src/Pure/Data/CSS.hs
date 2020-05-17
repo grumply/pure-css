@@ -34,15 +34,24 @@ import qualified Data.Map.Strict as M
 -- from template-haskell
 import qualified Language.Haskell.TH.Syntax as TH
 
+import Data.String (IsString(..))
+
 data Styles_ k where
   Style_ :: Txt -> Txt -> k -> Styles_ k
   deriving Functor
 
 type Styles = Narrative Styles_ Identity
 
-infixr 5 =:
+-- Note: `Txt.replace " " ""` is a hack to allow an instane of Num Txt to work for both
+--       combinatorial css property names and within calc() where spaces are required
+--       around operators.
+infixr 0 =:
 (=:) :: Txt -> Txt -> Styles Txt
-(=:) nm val = send (Style_ nm val val)
+(=:) nm val = send (Style_ (Txt.replace " " "" nm) val val)
+
+infixr 0 =*
+(=*) :: Txt -> [Txt] -> Styles Txt
+(=*) nm vals = let val = Txt.intercalate " " vals in nm =: val
 
 comment :: Txt -> Styles Txt
 comment com = (=:) ("//" <> com) ""
@@ -102,7 +111,7 @@ selector sel ss = send (CSS_ sel ss id)
 apply :: Styles a -> CSS a
 apply = selector ""
 
-infixr 1 .>
+infixr 0 .>
 (.>) :: (CSS a -> CSS b) -> Styles a -> CSS b
 (.>) f decls = f $ apply decls
 
@@ -132,7 +141,7 @@ select sel s = buildn $ \r l d ->
 
   in foldn r l go s
 
-any :: Txt
+any :: Txt 
 any = "*"
 
 before :: Txt
@@ -144,20 +153,77 @@ after = ":after"
 active :: Txt
 active = ":active"
 
-hovered :: Txt
-hovered = ":hover"
+visited :: Txt
+visited = ":visited"
 
-focused :: Txt
-focused = ":focus"
+hover :: Txt
+hover = ":hover"
+
+focus :: Txt
+focus = ":focus"
 
 disabled :: Txt
-disabled = "[disabled]"
+disabled = ":disabled"
+
+link :: Txt
+link = ":link"
+
+empty :: Txt
+empty = ":empty"
+
+checked :: Txt
+checked = ":checked"
+
+enabled :: Txt
+enabled = ":enabled"
+
+firstChild :: Txt
+firstChild = ":fist-child"
+
+firstOfType :: Txt
+firstOfType = ":first-of-type"
+
+inRange :: Txt
+inRange = ":in-range"
+
+invalid :: Txt
+invalid = ":invalid"
+
+lastChild :: Txt
+lastChild = ":last-child"
+
+onlyOfType :: Txt
+onlyOfType = ":only-of-type"
+
+onlyChild :: Txt
+onlyChild = ":only-child"
+
+optional :: Txt
+optional = ":optional"
+
+outOfRange :: Txt
+outOfRange = ":out-of-range"
+
+readOnly :: Txt
+readOnly = ":read-only"
+
+readWrite :: Txt
+readWrite = ":read-write"
+
+required :: Txt
+required = ":required"
+
+root :: Txt
+root = ":root"
+
+target :: Txt
+target = ":target"
+
+valid :: Txt
+valid = ":valid"
 
 is :: Txt -> CSS a -> CSS a
 is = select
-
-is_ :: Txt -> CSS a -> CSS ()
-is_ t c = void (is t c)
 
 -- equivalent to id; purely for scanning purposes
 and :: (Txt -> CSS a -> CSS a) -> Txt -> CSS a -> CSS a
@@ -169,8 +235,20 @@ or f sel css = f (", " <> sel) css
 isn't :: Txt -> CSS a -> CSS a
 isn't sel = select (":not(" <> sel <> ")")
 
-isn't_ :: Txt -> CSS a -> CSS ()
-isn't_ sel css = void (isn't sel css)
+lang :: Txt -> CSS a -> CSS a
+lang sel = select (":lang(" <> sel <> ")")
+
+nthChild :: Int -> CSS a -> CSS a
+nthChild i = select (":nth-child(" <> toTxt i <> ")")
+
+nthLastChild :: Int -> CSS a -> CSS a
+nthLastChild i = select (":nth-last-child(" <> toTxt i <> ")")
+
+nthOfType :: Int -> CSS a -> CSS a
+nthOfType i = select (":nth-of-type(" <> toTxt i <> ")")
+
+nthLastOfType :: Int -> CSS a -> CSS a
+nthLastOfType i = select (":nth-last-of-type(" <> toTxt i <> ")")
 
 compose :: (Category cat, Foldable t) => t (cat a a) -> cat a a
 compose = F.foldr (>>>) id
@@ -181,38 +259,20 @@ use fs x = for fs ($ x)
 pseudo :: Txt -> CSS a -> CSS a
 pseudo sel = select (":" <> sel)
 
-pseudo_ :: Txt -> CSS a -> CSS ()
-pseudo_ sel c = void (pseudo sel c)
-
 attr :: Txt -> CSS a -> CSS a
 attr sel = select ("[" <> sel <> "]")
-
-attr_ :: Txt -> CSS a -> CSS ()
-attr_ sel c = void (attr sel c)
 
 child :: Txt -> CSS a -> CSS a
 child sel = select (" > " <> sel)
 
-child_ :: Txt -> CSS a -> CSS ()
-child_ sel c = void (child sel c)
-
 has :: Txt -> CSS a -> CSS a
 has sel = select (" " <> sel)
-
-has_ :: Txt -> CSS a -> CSS ()
-has_ sel css = void (has sel css)
 
 next :: Txt -> CSS a -> CSS a
 next sel = select (" + " <> sel)
 
-next_ :: Txt -> CSS a -> CSS ()
-next_ sel css = void (next sel css)
-
 nexts :: Txt -> CSS a -> CSS a
 nexts sel = select (" ~ " <> sel)
-
-nexts_ :: Txt -> CSS a -> CSS ()
-nexts_ sel css = void (nexts sel css)
 
 atCharset :: Txt -> CSS ()
 atCharset cs = send (CSS3_ "@charset " cs (return ()) id)
@@ -242,32 +302,17 @@ atNamespace ns mnsv = send (CSS3_ namespace_ ns_ (Return ()) id)
 atMedia :: Txt -> CSS a -> CSS a
 atMedia med c = send (CSS3_ "@media " med c id)
 
-atMedia_ :: Txt -> CSS a -> CSS ()
-atMedia_ med c = void (atMedia med c)
-
 atPage :: Txt -> CSS a -> CSS a
 atPage pgsel rls = send (CSS3_ "@page " pgsel rls id)
-
-atPage_ :: Txt -> CSS a -> CSS ()
-atPage_ med c = void (atPage med c)
 
 atFontFace :: Txt -> CSS a -> CSS a
 atFontFace ff rls = send (CSS3_ "@font-face " ff rls id)
 
-atFontFace_ :: Txt -> CSS a -> CSS ()
-atFontFace_ ff rls = void (atFontFace ff rls)
-
 atWebkitKeyframes :: Txt -> CSS a -> CSS a
 atWebkitKeyframes nm kfs = send (CSS3_ "@-webkit-keyframes " nm kfs id)
 
-atWebkitKeyframes_ :: Txt -> CSS a -> CSS ()
-atWebkitKeyframes_ nm kfs = void (atWebkitKeyframes nm kfs)
-
 atKeyframes :: Txt -> CSS a -> CSS a
 atKeyframes nm kfs = send (CSS3_ "@keyframes " nm kfs id)
-
-atKeyframes_ :: Txt -> CSS a -> CSS ()
-atKeyframes_ nm kfs = void (atKeyframes nm kfs)
 
 -- data CSSError = InvalidCSSSyntax Txt deriving (Show)
 -- instance Exception CSSError
@@ -382,7 +427,7 @@ css' b nar = SimpleHTML "style" <| Property "type" "text/css" . Property "scoped
         CSS3_ atRule sel css k ->
           case css of
             Return a ->
-              go False (acc ++ [ text (atRule <> sel <> ";\n") ]) (k a)
+              go False (acc ++ [ txt (atRule <> sel <> ";\n") ]) (k a)
             _ ->
               let (c,a) = go True [] css
               in go False (acc ++ ( txt (atRule <> sel <> " {\n") : c) ++ [ txt "\n}\n\n" ]) (k a)
