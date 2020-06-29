@@ -169,7 +169,7 @@ enabled :: Txt
 enabled = ":enabled"
 
 firstChild :: Txt
-firstChild = ":fist-child"
+firstChild = ":first-child"
 
 firstOfType :: Txt
 firstOfType = ":first-of-type"
