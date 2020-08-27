@@ -105,12 +105,19 @@ instance Default (CSS ()) where
 selector :: Txt -> Styles a -> CSS a
 selector sel ss = send (CSS_ sel ss id)
 
-apply :: Styles a -> CSS a
-apply = selector ""
+apply :: Styles a -> CSS ()
+apply = void . selector ""
+
+apply' :: Styles a -> CSS a
+apply' = selector ""
 
 infixr 0 .>
-(.>) :: (CSS a -> CSS b) -> Styles a -> CSS b
+(.>) :: (CSS () -> CSS ()) -> Styles a -> CSS ()
 (.>) f decls = f $ apply decls
+
+infixr 0 ..>
+(..>) :: (CSS a -> CSS b) -> Styles a -> CSS b
+(..>) f decls = f $ apply' decls
 
 reusable :: Monad m => m a -> m (m a,a)
 reusable ma = do
@@ -228,8 +235,11 @@ firstLine = "::first-line"
 selection :: Txt
 selection = "::selection"
 
-is :: Txt -> CSS a -> CSS a
-is = select
+is :: Txt -> CSS a -> CSS ()
+is s c = void (select s c)
+
+is' :: Txt -> CSS a -> CSS a
+is' = select
 
 -- equivalent to id; purely for scanning purposes
 and :: (Txt -> CSS a -> CSS a) -> Txt -> CSS a -> CSS a
