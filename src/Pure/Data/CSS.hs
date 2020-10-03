@@ -88,6 +88,40 @@ select sel scoped = send (Selection_ sel scoped id)
 rescope :: Txt -> CSS a -> CSS a
 rescope rule scoped = send (Wrap_ rule scoped id)
 
+-- | Variablize a keyword.
+--
+-- The CSS DSL in this module subsumes CSS variables; if possible, use the 
+-- variable binding nature of the DSL rather than CSS variables, or simply 
+-- import necessary variables from a shared module.
+--
+-- In general, CSS variables are useful when defining a global color scheme or
+-- default fonts, making it easy to change the variable for all instances while 
+-- viewing your application in a live environment.
+-- 
+-- Keep in mind that it is necessary to define variables before they are used.
+-- In pure-theme, this can be accomplished by guaranteeing that the variables
+-- are defined in an ancestor view. If you're defining a global theme, add a 
+-- `:root { }` css block to your application's theme root and define variables
+-- there.
+--
+-- Use is relatively simple, as defvar just prefixes the variable name with `--`.
+--
+-- > defvar dark =: rgb(33,33,33)
+--
+-- The variable can then be used as:
+--
+-- > background-color =: usevar dark
+--
+defvar :: Txt -> Txt
+defvar = ("--" <>)
+
+-- | Use a keyword variable. See `defvar`.
+--
+-- > color =: usevar dark
+--
+usevar :: Txt -> Txt
+usevar x = "var(--" <> x <> ")"
+
 {-# DEPRECATED apply, (.>), (..>) "apply, (.>), and (..>) are no longer necessary to introduce a styling scope as the styling scope and selection scopes have been merged." #-}
 apply :: CSS a -> CSS a
 apply = id
