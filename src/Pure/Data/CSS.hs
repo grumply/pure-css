@@ -3,7 +3,7 @@
 module Pure.Data.CSS where
 
 import Pure.Data.View ( View )
-import Pure.Data.View.Patterns ( txt )
+import Pure.Data.View.Patterns ( txt, (<|), (|>), pattern Property, pattern SimpleHTML)
 import Ef ( send, Narrative(..) )
 import Pure.Data.Txt as Txt ( intercalate, replicate, null, toTxt, Txt )
 import Data.Functor.Identity ( Identity(runIdentity) )
@@ -143,7 +143,12 @@ stylesheet = start
            in selecting depth sel acc (rest <> Txt.replicate depth "\t" <> rule <> " {\n" <> res <> Txt.replicate depth "\t" <> "}\n\n" ) (k a)
 
 css :: CSS a -> View
-css = txt . stylesheet
+css = css' False
+
+css' :: Bool -> CSS a -> View
+css' scoped sheet = 
+  SimpleHTML "style" <| Property "type" "text/css" . Property "scoped" (if scoped then "true" else "") |>
+    [ txt (stylesheet sheet) ]
 
 any :: Txt 
 any = "*"
