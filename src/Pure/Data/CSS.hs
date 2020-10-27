@@ -8,7 +8,17 @@ import Ef ( send, Narrative(..) )
 import Pure.Data.Txt as Txt ( intercalate, replicate, null, toTxt, Txt )
 import Data.Functor.Identity ( Identity(runIdentity) )
 import Control.Monad ( void )
+import Data.Foldable (for_)
 import Data.Traversable (for)
+
+-- NOTE: The current design does not allow for deduplication of style blocks 
+--       by way of selector grouping. This implementation is verbose in its
+--       produced rules. An intermediate representation would be necessary to
+--       achieve deduplication and post-processing, but that would slow down the
+--       rendering algorithm. Since this approach is used to produce dynamic
+--       styles, it must be reasonably performant. The implementation as-is 
+--       is a trade-off that performs reasonably well at being both performant
+--       and expressive.
 
 data CSS_ k where
   Raw_    :: Txt -> k -> CSS_ k
@@ -42,6 +52,10 @@ infixr 0 =*
 (=*) :: Txt -> [Txt] -> CSS Txt
 (=*) nm (Txt.intercalate " " -> val) = nm =: val
 
+infixr 0 =!
+(=!) :: Txt -> Txt -> CSS Txt
+(=!) nm val = nm =: (val <> " !important")
+
 -- designed to maintain the old API
 important :: CSS a -> CSS a
 important (Return a) = Return a
@@ -53,7 +67,6 @@ important (Do msg) =
     Selection_ sel scoped ak -> Do (fmap important (Selection_ sel (important scoped) ak))
     Wrap_ rule scoped ak -> Do (fmap important (Wrap_ rule (important scoped) ak))
     Style_ k v a -> Do (fmap important (Style_ k (v <> " !important") a))
-
 
 -- | The core mechanism used to implement basic CSS selectors. See `is`, `has`,
 -- `next`, `child`.
@@ -184,149 +197,182 @@ css' scoped sheet =
   SimpleHTML "style" <| Property "type" "text/css" . Property "scoped" (if scoped then "true" else "") |>
     [ txt (stylesheet sheet) ]
 
-any :: Txt 
-any = "*"
-
-active :: Txt
-active = ":active"
-
-visited :: Txt
-visited = ":visited"
-
-hover :: Txt
-hover = ":hover"
-
-focus :: Txt
-focus = ":focus"
-
-disabled :: Txt
-disabled = ":disabled"
-
-link :: Txt
-link = ":link"
-
-empty :: Txt
-empty = ":empty"
-
-checked :: Txt
-checked = ":checked"
-
-enabled :: Txt
-enabled = ":enabled"
-
-firstChild :: Txt
-firstChild = ":first-child"
-
-firstOfType :: Txt
-firstOfType = ":first-of-type"
-
-inRange :: Txt
-inRange = ":in-range"
-
-invalid :: Txt
-invalid = ":invalid"
-
-lastChild :: Txt
-lastChild = ":last-child"
-
-onlyOfType :: Txt
-onlyOfType = ":only-of-type"
-
-onlyChild :: Txt
-onlyChild = ":only-child"
-
-optional :: Txt
-optional = ":optional"
-
-outOfRange :: Txt
-outOfRange = ":out-of-range"
-
-readOnly :: Txt
-readOnly = ":read-only"
-
-readWrite :: Txt
-readWrite = ":read-write"
-
-required :: Txt
-required = ":required"
-
-root :: Txt
-root = ":root"
-
-target :: Txt
-target = ":target"
-
-valid :: Txt
-valid = ":valid"
-
-before :: Txt
-before = "::before"
-
-after :: Txt
-after = "::after"
-
-firstLetter :: Txt
-firstLetter = "::first-letter"
-
-firstLine :: Txt
-firstLine = "::first-line"
-
-selection :: Txt
-selection = "::selection"
-
 is :: Txt -> CSS a -> CSS ()
 is s c = void (select s c)
 
 is' :: Txt -> CSS a -> CSS a
 is' = select
 
+-- `and` is just juxtaposition in css selectors. Should probably 
+-- remove so it doesn't get mixed up with or. Can't think of a 
+-- use-case, as is.
 and :: (Txt -> CSS a -> CSS b) -> Txt -> CSS a -> CSS b
 and f = f
 
-or :: (Txt -> CSS a -> CSS b) -> Txt -> CSS a -> CSS b
-or f sel = f (", " <> sel) 
+-- This might not do what you expect!
+--
+-- > is ".btn" do
+-- >   is ".warn" do 
+-- >     or is ".bold" $ do
+-- >       font-weight =: 700
+--
+-- Produces:
+--
+-- .btn.warn, .bold {
+--     font-weight: 700;
+-- }
+-- 
+-- `or` simply inserts a comma before the supplied selector, it doesn't
+-- do any re-scoping.
+-- 
+-- Instead, what you may be wanting is this:
+--
+-- > let bolded = font-weight =: 700
+-- > is ".btn" do
+-- >   is ".warn" bolded
+-- >   is ".bold" bolded
+--
+-- Or, use the `using` combinator:
+--
+-- > is ".btn" do
+-- >   using [is ".warn",is ".bold"] do
+-- >     font-weight =: 700
+--
+-- If you're choosing this combinator for performance reasons, you're
+-- optimizing the wrong thing! 
+or :: (Txt -> CSS a -> CSS b) -> Txt -> CSS a -> CSS ()
+or f sel block = void (or' f sel block)
 
-isn't :: Txt -> CSS a -> CSS a
-isn't sel = select (":not(" <> sel <> ")")
+or' :: (Txt -> CSS a -> CSS b) -> Txt -> CSS a -> CSS b
+or' f sel block = is' ", " (f sel block)
 
-lang :: Txt -> CSS a -> CSS a
-lang sel = select (":lang(" <> sel <> ")")
+-- Achieve a similar effect to `or`, but instead of creating a 
+-- CSS selector alternative, it simply duplicates the rule block
+-- for each selector.
+-- 
+-- Compare:
+--
+-- > is ".btn" . is ".warn" . or is ".btn" . is ".bold" $ do
+-- >   font-weight =: 700
+-- 
+-- > is ".btn" do
+-- >   using [is ".warn",is ".bold"] do
+-- >     font-weight =: 700
+-- 
+-- They achieve the same result, but the first produces a more compact result.
+--
+-- The first produces:
+--
+-- .btn.warn, .btn.bold {
+--     font-weight: 700;
+-- }
+-- 
+-- The second produces:
+-- 
+-- .btn.warn {
+--     font-weight: 700;
+-- }
+-- .btn.bold {
+--     font-weight: 700;
+-- }
+-- 
+-- Choose whichever you find easier to read. Personally, for such a small
+-- set of rules, I choose the approach I find to be most readable:
+--
+-- > is ".btn" do
+-- >
+-- >   is ".warn" do
+-- >     font-weight =: 700
+-- >
+-- >   is ".bold" do
+-- >     font-weight =: 700
+-- 
+-- As a bonus, this simple approach allows for easy extension of each of
+-- the separate blocks. And sharing styles can be done by let-lifting.
+-- 
+using :: [CSS a -> CSS b] -> CSS a -> CSS ()
+using = use
 
-nthChild :: Int -> CSS a -> CSS a
-nthChild i = select (":nth-child(" <> toTxt i <> ")")
+isn't :: Txt -> CSS a -> CSS ()
+isn't sel = void . isn't' sel
 
-nthChildCalc :: Txt -> CSS a -> CSS a
-nthChildCalc i = select (":nth-child(" <> i <> ")")
+isn't' :: Txt -> CSS a -> CSS a
+isn't' sel = select (":not(" <> sel <> ")")
 
-nthLastChild :: Int -> CSS a -> CSS a
-nthLastChild i = select (":nth-last-child(" <> toTxt i <> ")")
+lang :: Txt -> CSS a -> CSS ()
+lang sel = void . lang' sel
 
-nthOfType :: Int -> CSS a -> CSS a
-nthOfType i = select (":nth-of-type(" <> toTxt i <> ")")
+lang' :: Txt -> CSS a -> CSS a
+lang' sel = select (":lang(" <> sel <> ")")
 
-nthLastOfType :: Int -> CSS a -> CSS a
-nthLastOfType i = select (":nth-last-of-type(" <> toTxt i <> ")")
+nthChild :: Txt -> CSS a -> CSS ()
+nthChild i = void . nthChild' i
 
-use :: (Traversable t, Applicative f) => t (a -> f b) -> a -> f (t b)
-use fs x = for fs ($ x)
+nthChild' :: Txt -> CSS a -> CSS a
+nthChild' i = select (":nth-child(" <> i <> ")")
 
-pseudo :: Txt -> CSS a -> CSS a
-pseudo sel = select (":" <> sel)
+nthLastChild :: Txt -> CSS a -> CSS ()
+nthLastChild i = void . nthLastChild' i
 
-attr :: Txt -> CSS a -> CSS a
-attr sel = select ("[" <> sel <> "]")
+nthLastChild' :: Txt -> CSS a -> CSS a
+nthLastChild' i = select (":nth-last-child(" <> i <> ")")
 
-child :: Txt -> CSS a -> CSS a
-child sel = select (" > " <> sel)
+nthOfType :: Txt -> CSS a -> CSS ()
+nthOfType i = void . nthOfType' i
 
-has :: Txt -> CSS a -> CSS a
-has sel = select (" " <> sel)
+nthOfType' :: Txt -> CSS a -> CSS a
+nthOfType' i = select (":nth-of-type(" <> i <> ")")
 
-next :: Txt -> CSS a -> CSS a
-next sel = select (" + " <> sel)
+nthLastOfType :: Txt -> CSS a -> CSS ()
+nthLastOfType i = void . nthLastOfType' i
 
-nexts :: Txt -> CSS a -> CSS a
-nexts sel = select (" ~ " <> sel)
+nthLastOfType' :: Txt -> CSS a -> CSS a
+nthLastOfType' i = select (":nth-last-of-type(" <> i <> ")")
+
+-- Conveniently compose some combinators:
+--
+-- > use [or ".bold", or ".warn"] do
+-- >   font-weight =: 700
+--
+-- Wasn't sure of a good name for this one.
+use :: (Traversable t, Applicative f) => t (a -> f b) -> a -> f ()
+use fs x = for_ fs ($ x)
+
+pseudo :: Txt -> CSS a -> CSS ()
+pseudo sel = void . pseudo sel
+
+pseudo' :: Txt -> CSS a -> CSS a
+pseudo' sel = select (":" <> sel)
+
+attr :: Txt -> CSS a -> CSS ()
+attr sel = void . attr' sel
+
+attr' :: Txt -> CSS a -> CSS a
+attr' sel = select ("[" <> sel <> "]")
+
+child :: Txt -> CSS a -> CSS ()
+child sel = void . child' sel
+
+child' :: Txt -> CSS a -> CSS a
+child' sel = select (" > " <> sel)
+
+has :: Txt -> CSS a -> CSS ()
+has sel = void . has' sel
+
+has' :: Txt -> CSS a -> CSS a
+has' sel = select (" " <> sel)
+
+next :: Txt -> CSS a -> CSS ()
+next sel = void . next' sel
+
+next' :: Txt -> CSS a -> CSS a
+next' sel = select (" + " <> sel)
+
+nexts :: Txt -> CSS a -> CSS ()
+nexts sel = void . nexts' sel
+
+nexts' :: Txt -> CSS a -> CSS a
+nexts' sel = select (" ~ " <> sel)
 
 atCharset :: Txt -> CSS ()
 atCharset cs = rawCSS ("@charset " <> cs)
@@ -339,6 +385,120 @@ iso885915Charset = atCharset "\"iso-8859-15\";"
 
 atImport :: Txt -> CSS ()
 atImport i = rescope ("@import " <> i) (pure ())
+
+any :: CSS a -> CSS a
+any = is' "*"
+
+active :: CSS a -> CSS a
+active = is' ":active"
+
+visited :: CSS a -> CSS a
+visited = is' ":visited"
+
+hover :: CSS a -> CSS a
+hover = is' ":hover"
+
+focus :: CSS a -> CSS a
+focus = is' ":focus"
+
+disabled :: CSS a -> CSS a
+disabled = is' ":disabled"
+
+link :: CSS a -> CSS a
+link = is' ":link"
+
+empty :: CSS a -> CSS a
+empty = is' ":empty"
+
+checked :: CSS a -> CSS a
+checked = is' ":checked"
+
+enabled :: CSS a -> CSS a
+enabled = is' ":enabled"
+
+firstChild :: CSS a -> CSS a
+firstChild = is' ":first-child"
+
+firstOfType :: CSS a -> CSS a
+firstOfType = is' ":first-of-type"
+
+inRange :: CSS a -> CSS a
+inRange = is' ":in-range"
+
+invalid :: CSS a -> CSS a
+invalid = is' ":invalid"
+
+lastChild :: CSS a -> CSS a
+lastChild = is' ":last-child"
+
+onlyOfType :: CSS a -> CSS a
+onlyOfType = is' ":only-of-type"
+
+onlyChild :: CSS a -> CSS a
+onlyChild = is' ":only-child"
+
+optional :: CSS a -> CSS a
+optional = is' ":optional"
+
+outOfRange :: CSS a -> CSS a
+outOfRange = is' ":out-of-range"
+
+readOnly :: CSS a -> CSS a
+readOnly = is' ":read-only"
+
+readWrite :: CSS a -> CSS a
+readWrite = is' ":read-write"
+
+required :: CSS a -> CSS a
+required = is' ":required"
+
+root :: CSS a -> CSS a
+root = is' ":root"
+
+target :: CSS a -> CSS a
+target = is' ":target"
+
+valid :: CSS a -> CSS a
+valid = is' ":valid"
+
+before :: CSS a -> CSS a
+before = is' "::before"
+
+after :: CSS a -> CSS a
+after = is' "::after"
+
+firstLetter :: CSS a -> CSS a
+firstLetter = is' "::first-letter"
+
+firstLine :: CSS a -> CSS a
+firstLine = is' "::first-line"
+
+selection :: CSS a -> CSS a
+selection = is' "::selection"
+
+atMedia :: Txt -> CSS a -> CSS ()
+atMedia med = void . atMedia' med
+
+atMedia' :: Txt -> CSS a -> CSS a
+atMedia' med = rescope ("@media " <> med)
+
+atPage :: Txt -> CSS a -> CSS ()
+atPage pg = void . atPage' pg
+
+atPage' :: Txt -> CSS a -> CSS a
+atPage' pg = rescope ("@page " <> pg)
+
+atFontFace :: Txt -> CSS a -> CSS ()
+atFontFace ff = void . atFontFace' ff
+
+atFontFace' :: Txt -> CSS a -> CSS a
+atFontFace' ff = rescope ("@font-face " <> ff)
+
+atKeyframes :: Txt -> CSS a -> CSS ()
+atKeyframes nm = void . atKeyframes' nm
+
+atKeyframes' :: Txt -> CSS a -> CSS a
+atKeyframes' nm = rescope ("@keyframes " <> nm)
 
 data Namespace = XHTMLNS | SVGNS
 
@@ -353,14 +513,3 @@ atNamespace ns mnsv = rescope (namespace_ <> ns_) (pure ())
     namespace_ = 
       let n = "@namespace " in maybe n (n <>) mnsv
 
-atMedia :: Txt -> CSS a -> CSS a
-atMedia med = rescope ("@media " <> med)
-
-atPage :: Txt -> CSS a -> CSS a
-atPage pg = rescope ("@page " <> pg)
-
-atFontFace :: Txt -> CSS a -> CSS a
-atFontFace ff = rescope ("@font-face " <> ff)
-
-atKeyframes :: Txt -> CSS a -> CSS a
-atKeyframes nm = rescope ("@keyframes " <> nm)
