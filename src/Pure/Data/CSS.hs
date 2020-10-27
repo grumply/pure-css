@@ -23,6 +23,7 @@ import Data.Traversable (for)
 data CSS_ k where
   Raw_    :: Txt -> k -> CSS_ k
   Scope_  :: (Txt -> k) -> CSS_ k
+  Rescope_ :: Txt -> CSS a -> (a -> k) -> CSS_ k
   Selection_ :: Txt -> CSS a -> (a -> k) -> CSS_ k
   Wrap_   :: Txt -> CSS a -> (a -> k) -> CSS_ k
   Style_  :: Txt -> Txt -> k -> CSS_ k
@@ -30,6 +31,7 @@ data CSS_ k where
 instance Functor CSS_ where
   fmap f (Raw_ r k) = Raw_ r (f k)
   fmap f (Scope_ g) = Scope_ (f . g)
+  fmap f (Rescope_ sel scoped ak) = Rescope_ sel scoped (f . ak)
   fmap f (Selection_ sel scoped ak) = Selection_ sel scoped (f . ak)
   fmap f (Wrap_ rule scoped ak) = Wrap_ rule scoped (f . ak)
   fmap f (Style_ k v a) = Style_ k v (f a)
@@ -83,12 +85,46 @@ important (Do msg) =
 select :: Txt -> CSS a -> CSS a
 select sel scoped = send (Selection_ sel scoped id)
 
--- | `rescope` allows the implementation of @_ queries by re-wrapping
+-- | `rescope` allows for locally modifying the current scope; this combinator
+-- can be useful in cases where a utility class be applied to a parent selector
+-- but keeping the parent selector nested within the child selector context makes
+-- more sense from a comprehensibility standpoint. 
+--
+-- Consider this case where a parent that has a `Disabled` class. Without `rescope`,
+-- multiple context blocks are required to style with and without the parent's flag.
+--
+-- > is ".btn"
+-- >   ...
+-- >
+-- > is ".disabled" do
+-- >   has ".btn" do
+-- >     ...
+-- 
+-- With rescope, we can write combinators like `within`:
+--
+-- > -- convert a root `is` selector to a `has` selector and prepend a parent context.
+-- > within parent block = do
+-- >   s <- scope
+-- >   rescope (parent <> " " <> s) block
+--
+-- and achieve the more desirable:
+--
+-- > is ".btn" do
+-- >   ...
+-- >   within ".disabled" do
+-- >     ...
+-- 
+-- Note: While this combinator is exported, it is not used locally. I preferred to
+--       create the above `within` in pure-theme.
+rescope :: Txt -> CSS a -> CSS a
+rescope sel scoped = send (Rescope_ sel scoped id)
+
+-- | `wrap` allows the implementation of @_ queries by re-wrapping
 -- the current scope at the root level, making it possible to
 -- wrap a scope block with a CSS3 selector:
 --
 -- > at @SomeClass do
--- >   rescope "@media screen and (min-width: 400px)" do
+-- >   wrap "@media screen and (min-width: 400px)" do
 -- >     ...
 --
 -- Produces:
@@ -98,8 +134,8 @@ select sel scoped = send (Selection_ sel scoped id)
 -- >     ...
 -- >   }
 -- > }
-rescope :: Txt -> CSS a -> CSS a
-rescope rule scoped = send (Wrap_ rule scoped id)
+wrap :: Txt -> CSS a -> CSS a
+wrap rule scoped = send (Wrap_ rule scoped id)
 
 -- | Variablize a keyword.
 --
@@ -157,7 +193,7 @@ stylesheet = start
         Raw_ r k -> r <> "\n" <> start k
         
         Scope_ f -> start (f "")
-
+        
         -- Couldn't figure a way to disallow this case; it is an artifact of 
         -- the unification of the css and style DSLs.
         Style_ _ _ k -> start k
@@ -165,6 +201,11 @@ stylesheet = start
         Selection_ sel scoped k -> 
           let (res,a) = selecting 0 sel "" "" scoped 
            in res <> start (k a)
+
+        Rescope_ sel scoped k -> 
+          let (res,a) = selecting 0 sel "" "" scoped
+          in res <> start (k a)
+
         Wrap_ rule scoped k ->
           let (res,a) = selecting 1 "" "" "" scoped
            in rule <> " {\n" <> res <> "}\n\n" <> start (k a)
@@ -182,6 +223,9 @@ stylesheet = start
         Scope_ f -> selecting depth sel acc rest (f sel)
         Raw_ r k -> selecting depth sel acc (rest <> r <> "\n") k
         Style_ k v cont -> selecting depth sel (acc <> (Txt.replicate (depth + 1) "\t") <> k <> ": " <> v <> ";\n") rest cont
+        Rescope_ sel' scoped k ->
+          let (res,a) = selecting depth sel' "" "" scoped
+          in selecting depth sel acc (rest <> res) (k a)
         Selection_ sel' scoped k -> 
           let (res,a) = selecting depth (sel <> sel') "" "" scoped
            in selecting depth sel acc (rest <> res) (k a)
@@ -384,7 +428,7 @@ iso885915Charset :: CSS ()
 iso885915Charset = atCharset "\"iso-8859-15\";"
 
 atImport :: Txt -> CSS ()
-atImport i = rescope ("@import " <> i) (pure ())
+atImport i = wrap ("@import " <> i) (pure ())
 
 any :: CSS a -> CSS a
 any = is' "*"
@@ -480,30 +524,30 @@ atMedia :: Txt -> CSS a -> CSS ()
 atMedia med = void . atMedia' med
 
 atMedia' :: Txt -> CSS a -> CSS a
-atMedia' med = rescope ("@media " <> med)
+atMedia' med = wrap ("@media " <> med)
 
 atPage :: Txt -> CSS a -> CSS ()
 atPage pg = void . atPage' pg
 
 atPage' :: Txt -> CSS a -> CSS a
-atPage' pg = rescope ("@page " <> pg)
+atPage' pg = wrap ("@page " <> pg)
 
 atFontFace :: Txt -> CSS a -> CSS ()
 atFontFace ff = void . atFontFace' ff
 
 atFontFace' :: Txt -> CSS a -> CSS a
-atFontFace' ff = rescope ("@font-face " <> ff)
+atFontFace' ff = wrap ("@font-face " <> ff)
 
 atKeyframes :: Txt -> CSS a -> CSS ()
 atKeyframes nm = void . atKeyframes' nm
 
 atKeyframes' :: Txt -> CSS a -> CSS a
-atKeyframes' nm = rescope ("@keyframes " <> nm)
+atKeyframes' nm = wrap ("@keyframes " <> nm)
 
 data Namespace = XHTMLNS | SVGNS
 
 atNamespace :: Namespace -> Maybe Txt -> CSS ()
-atNamespace ns mnsv = rescope (namespace_ <> ns_) (pure ())
+atNamespace ns mnsv = wrap (namespace_ <> ns_) (pure ())
   where
     ns_ =
       case ns of
