@@ -383,7 +383,7 @@ use :: (Traversable t, Applicative f) => t (a -> f b) -> a -> f ()
 use fs x = for_ fs ($ x)
 
 pseudo :: Txt -> CSS a -> CSS ()
-pseudo sel = void . pseudo sel
+pseudo sel = void . pseudo' sel
 
 pseudo' :: Txt -> CSS a -> CSS a
 pseudo' sel = select (":" <> sel)
