@@ -58,6 +58,10 @@ infixr 0 =!
 (=!) :: Txt -> Txt -> CSS Txt
 (=!) nm val = nm =: (val <> " !important")
 
+infixr 0 =&
+(=&) :: Txt -> [Txt] -> CSS Txt
+(=&) nm (Txt.intercalate ", " -> val) = nm =: val
+
 -- designed to maintain the old API
 important :: CSS a -> CSS a
 important (Return a) = Return a
