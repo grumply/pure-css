@@ -19,6 +19,8 @@ import Data.Traversable (for)
 --       styles, it must be reasonably performant. The implementation as-is 
 --       is a trade-off that performs reasonably well at being both performant
 --       and expressive.
+--       
+-- TODO: Statically prevent tag selectors nested within class selectors.
 
 data CSS_ k where
   Raw_    :: Txt -> k -> CSS_ k
@@ -90,7 +92,7 @@ select :: Txt -> CSS a -> CSS a
 select sel scoped = send (Selection_ sel scoped id)
 
 -- | `rescope` allows for locally modifying the current scope; this combinator
--- can be useful in cases where a utility class be applied to a parent selector
+-- can be useful in cases where a utility class must be applied to a parent selector
 -- but keeping the parent selector nested within the child selector context makes
 -- more sense from a comprehensibility standpoint. 
 --
@@ -250,12 +252,6 @@ is s c = void (select s c)
 
 is' :: Txt -> CSS a -> CSS a
 is' = select
-
--- `and` is just juxtaposition in css selectors. Should probably 
--- remove so it doesn't get mixed up with or. Can't think of a 
--- use-case, as is.
-and :: (Txt -> CSS a -> CSS b) -> Txt -> CSS a -> CSS b
-and f = f
 
 -- This might not do what you expect!
 --
